@@ -15,6 +15,7 @@ export class DeviceDiscovery extends EventEmitter {
   private port: number;
   private localIp: string = '';
   private debug: boolean = process.env.DEBUG === 'true';
+  private boundPort: number = DISCOVERY_PORT;
 
   constructor(deviceName: string, port: number) {
     super();
@@ -36,20 +37,19 @@ export class DeviceDiscovery extends EventEmitter {
     for (const name of Object.keys(nets)) {
       for (const net of nets[name] || []) {
         if (net.family === 'IPv4' && !net.internal) {
-          // Priority: WiFi/Ethernet > others > Docker/VM interfaces
           let priority = 0;
           const lowerName = name.toLowerCase();
           
           if (lowerName.includes('docker') || lowerName.includes('br-') || lowerName.includes('veth')) {
-            priority = 1; // Docker interfaces - lowest priority
+            priority = 1;
           } else if (lowerName.includes('vmnet') || lowerName.includes('vboxnet')) {
-            priority = 2; // VM interfaces
+            priority = 2;
           } else if (lowerName.includes('wlan') || lowerName.includes('wlp') || lowerName.includes('wifi')) {
-            priority = 10; // WiFi - high priority
+            priority = 10;
           } else if (lowerName.includes('eth') || lowerName.includes('enp') || lowerName.includes('eno')) {
-            priority = 9; // Ethernet - high priority
+            priority = 9;
           } else {
-            priority = 5; // Other interfaces
+            priority = 5;
           }
 
           candidates.push({ name, address: net.address, priority });
@@ -57,9 +57,7 @@ export class DeviceDiscovery extends EventEmitter {
       }
     }
 
-    // Sort by priority (highest first)
     candidates.sort((a, b) => b.priority - a.priority);
-
     this.log('Available interfaces:', candidates.map(c => `${c.name}(${c.priority}):${c.address}`).join(', '));
 
     if (candidates.length > 0) {
@@ -72,7 +70,6 @@ export class DeviceDiscovery extends EventEmitter {
   }
 
   private getBroadcastAddress(): string {
-    // Calculate subnet broadcast address (e.g., 10.146.30.118 -> 10.146.30.255)
     const parts = this.localIp.split('.');
     if (parts.length === 4) {
       parts[3] = '255';
@@ -102,7 +99,6 @@ export class DeviceDiscovery extends EventEmitter {
             lastSeen: new Date()
           };
           
-          // Ignore self
           if (device.port !== this.port || rinfo.address !== this.localIp) {
             const existing = this.devices.get(device.id);
             if (!existing) {
@@ -114,7 +110,6 @@ export class DeviceDiscovery extends EventEmitter {
             }
           }
           
-          // Send response
           this.sendDiscoveryResponse(rinfo.address);
         }
       }
@@ -124,11 +119,44 @@ export class DeviceDiscovery extends EventEmitter {
       console.error('[Discovery] Socket error:', err.message);
     });
 
-    this.socket.bind(DISCOVERY_PORT, () => {
-      this.log(`Socket bound to port ${DISCOVERY_PORT}`);
-      this.socket?.setBroadcast(true);
-      this.log('Broadcast mode enabled');
-      this.startBroadcasting();
+    return new Promise((resolve, reject) => {
+      this.socket?.on('error', reject);
+      
+      // Try to bind to specific port, fallback to random port
+      this.tryBind(DISCOVERY_PORT, (success) => {
+        if (success) {
+          this.boundPort = DISCOVERY_PORT;
+          this.log(`Socket bound to port ${this.boundPort}`);
+          this.socket?.setBroadcast(true);
+          this.log('Broadcast mode enabled');
+          this.startBroadcasting();
+          resolve();
+        } else {
+          // Try random port
+          this.socket?.bind(0, '0.0.0.0', () => {
+            const address = this.socket?.address();
+            this.boundPort = address?.port || DISCOVERY_PORT;
+            this.log(`Socket bound to random port ${this.boundPort}`);
+            this.socket?.setBroadcast(true);
+            this.log('Broadcast mode enabled');
+            this.startBroadcasting();
+            resolve();
+          });
+        }
+      });
+    });
+  }
+
+  private tryBind(port: number, callback: (success: boolean) => void): void {
+    this.socket?.once('error', (err: any) => {
+      if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
+        this.log(`Port ${port} unavailable, will try random port`);
+        callback(false);
+      }
+    });
+    
+    this.socket?.bind(port, '0.0.0.0', () => {
+      callback(true);
     });
   }
 
@@ -136,14 +164,12 @@ export class DeviceDiscovery extends EventEmitter {
     const broadcast = () => {
       const message = `${DISCOVERY_MESSAGE}|${this.deviceName}|${this.port}`;
       
-      // Send to global broadcast
       this.socket?.send(message, DISCOVERY_PORT, '255.255.255.255', (err) => {
         if (err) {
           this.log('Global broadcast error:', err.message);
         }
       });
       
-      // Also send to subnet-specific broadcast
       const subnetBroadcast = this.getBroadcastAddress();
       if (subnetBroadcast !== '255.255.255.255') {
         this.socket?.send(message, DISCOVERY_PORT, subnetBroadcast, (err) => {
@@ -168,7 +194,6 @@ export class DeviceDiscovery extends EventEmitter {
   }
 
   getDevices(): Device[] {
-    // Clean up old devices (not seen in 30 seconds)
     const now = new Date();
     for (const [id, device] of this.devices.entries()) {
       if (now.getTime() - device.lastSeen.getTime() > 30000) {

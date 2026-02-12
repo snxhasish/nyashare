@@ -9,7 +9,7 @@ import ora from 'ora';
 import { ShareServer } from './server';
 import { DeviceDiscovery } from './discovery';
 import { FileTransferService } from './transfer';
-import { ServerConfig } from './types';
+import { Device, ServerConfig } from './types';
 
 const program = new Command();
 
@@ -162,32 +162,81 @@ program
         // Wait a moment for discovery to find devices
         await new Promise(resolve => setTimeout(resolve, 2000));
         
-        const devices = discovery.getDevices();
+        let devices = discovery.getDevices();
+        let targetDevice: Device | null = null;
         
         if (devices.length === 0) {
-          console.log(chalk.yellow('⚠️  No devices found on the network. Waiting...\n'));
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          const updatedDevices = discovery.getDevices();
+          console.log(chalk.yellow('⚠️  No devices found on the network.\n'));
           
-          if (updatedDevices.length === 0) {
-            console.log(chalk.red('❌ Still no devices found. Make sure other devices are running nyashare.\n'));
-            showPrompt();
-            return;
+          const { manualEntry } = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'manualEntry',
+            message: 'Would you like to manually enter device IP? (useful for Android/Termux)',
+            default: true
+          }]);
+          
+          if (manualEntry) {
+            const { ip, port } = await inquirer.prompt([{
+              type: 'input',
+              name: 'ip',
+              message: 'Enter device IP address:',
+              validate: (input: string) => {
+                if (/^(\d{1,3}\.){3}\d{1,3}$/.test(input)) return true;
+                return 'Please enter a valid IP address (e.g., 192.168.2.100)';
+              }
+            }, {
+              type: 'input',
+              name: 'port',
+              message: 'Enter device port (usually 3000):',
+              default: '3000',
+              validate: (input: string) => {
+                const port = parseInt(input);
+                if (port > 0 && port < 65536) return true;
+                return 'Please enter a valid port number';
+              }
+            }]);
+            
+            targetDevice = {
+              id: `${ip}:${port}`,
+              name: 'Manual Device',
+              ip: ip,
+              port: parseInt(port),
+              lastSeen: new Date()
+            };
+          } else {
+            console.log(chalk.yellow('Waiting 5 seconds for discovery...\n'));
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            devices = discovery.getDevices();
+            
+            if (devices.length === 0) {
+              console.log(chalk.red('❌ Still no devices found. Make sure other devices are running nyashare.\n'));
+              showPrompt();
+              return;
+            }
           }
         }
 
-        const currentDevices = discovery.getDevices();
-        const choices = currentDevices.map((device, _index) => ({
-          name: `${device.name} (${device.ip})`,
-          value: device
-        }));
+        if (!targetDevice) {
+          const currentDevices = discovery.getDevices();
+          const choices = currentDevices.map((device, _index) => ({
+            name: `${device.name} (${device.ip})`,
+            value: device
+          }));
 
-        const { targetDevice } = await inquirer.prompt([{
-          type: 'list',
-          name: 'targetDevice',
-          message: 'Choose a device to send files to:',
-          choices
-        }]);
+          const result = await inquirer.prompt([{
+            type: 'list',
+            name: 'targetDevice',
+            message: 'Choose a device to send files to:',
+            choices
+          }]);
+          targetDevice = result.targetDevice;
+        }
+
+        if (!targetDevice) {
+          console.log(chalk.red('❌ No device selected.\n'));
+          showPrompt();
+          return;
+        }
 
         console.log(chalk.cyan(`\n📤 Sending ${files.length} file(s) to ${chalk.bold(targetDevice.name)} (${targetDevice.ip})...\n`));
 
