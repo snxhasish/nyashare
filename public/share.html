@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NyaShare - Share Files</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    .header h1 {
+      font-size: 1.5em;
+      margin-bottom: 5px;
+    }
+    
+    .header p {
+      opacity: 0.9;
+      font-size: 0.9em;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .upload-area {
+      background: white;
+      border: 3px dashed #ddd;
+      border-radius: 15px;
+      padding: 60px 20px;
+      text-align: center;
+      margin-bottom: 20px;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+    
+    .upload-area:hover, .upload-area.dragover {
+      border-color: #667eea;
+      background: #f8f9ff;
+    }
+    
+    .upload-area i {
+      font-size: 3em;
+      color: #667eea;
+      margin-bottom: 15px;
+    }
+    
+    .upload-area h3 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    
+    .upload-area p {
+      color: #666;
+    }
+    
+    #fileInput {
+      display: none;
+    }
+    
+    .section {
+      background: white;
+      border-radius: 15px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    }
+    
+    .section h2 {
+      color: #333;
+      margin-bottom: 15px;
+      font-size: 1.2em;
+    }
+    
+    .file-list {
+      list-style: none;
+    }
+    
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      transition: background 0.2s;
+    }
+    
+    .file-item:hover {
+      background: #f8f9fa;
+    }
+    
+    .file-item:last-child {
+      border-bottom: none;
+    }
+    
+    .file-info {
+      flex: 1;
+    }
+    
+    .file-name {
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 3px;
+    }
+    
+    .file-size {
+      font-size: 0.85em;
+      color: #666;
+    }
+    
+    .file-actions {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #5568d3;
+    }
+    
+    .btn-danger {
+      background: #dc3545;
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background: #c82333;
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #eee;
+      border-radius: 2px;
+      margin-top: 8px;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .progress-bar.active {
+      display: block;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: #667eea;
+      transition: width 0.3s;
+      width: 0%;
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #333;
+      color: white;
+      padding: 15px 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      display: none;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+    }
+    
+    .toast.show {
+      display: flex;
+      animation: slideIn 0.3s ease;
+    }
+    
+    .toast.success {
+      background: #28a745;
+    }
+    
+    .toast.error {
+      background: #dc3545;
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📤 NyaShare</h1>
+    <p>Share files over your local network</p>
+  </div>
+  
+  <div class="container">
+    <div class="upload-area" id="uploadArea">
+      <div style="font-size: 3em; margin-bottom: 15px;">📁</div>
+      <h3>Drop files here or click to upload</h3>
+      <p>Maximum file size: 10GB</p>
+      <input type="file" id="fileInput" multiple>
+    </div>
+    
+    <div class="section">
+      <h2>📂 Available Files</h2>
+      <ul class="file-list" id="fileList">
+        <li class="empty-state">Loading files...</li>
+      </ul>
+    </div>
+  </div>
+  
+  <div class="toast" id="toast">
+    <span id="toastMessage"></span>
+  </div>
+  
+  <script>
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const toast = document.getElementById('toast');
+    const toastMessage = document.getElementById('toastMessage');
+    
+    // Click to upload
+    uploadArea.addEventListener('click', () => fileInput.click());
+    
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+    
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+    
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      handleFiles(e.dataTransfer.files);
+    });
+    
+    fileInput.addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+    });
+    
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+    
+    function showToast(message, type = 'success') {
+      toastMessage.textContent = message;
+      toast.className = 'toast show ' + type;
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+    
+    async function handleFiles(files) {
+      if (files.length === 0) return;
+      
+      const formData = new FormData();
+      for (const file of files) {
+        formData.append('files', file);
+      }
+      
+      showToast('Uploading files...');
+      
+      try {
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (response.ok) {
+          showToast('Files uploaded successfully!', 'success');
+          loadFiles();
+        } else {
+          throw new Error('Upload failed');
+        }
+      } catch (error) {
+        showToast('Failed to upload files', 'error');
+      }
+      
+      fileInput.value = '';
+    }
+    
+    async function loadFiles() {
+      try {
+        const response = await fetch('/api/files');
+        const files = await response.json();
+        
+        if (files.length === 0) {
+          fileList.innerHTML = '<li class="empty-state">No files shared yet</li>';
+          return;
+        }
+        
+        fileList.innerHTML = files.map(file => `
+          <li class="file-item">
+            <div class="file-info">
+              <div class="file-name">${file.name}</div>
+              <div class="file-size">${formatSize(file.size)} • ${new Date(file.modified).toLocaleDateString()}</div>
+            </div>
+            <div class="file-actions">
+              <a href="/api/download/${file.originalName}" class="btn btn-primary" download>⬇ Download</a>
+              <button class="btn btn-danger" onclick="deleteFile('${file.originalName}')">🗑 Delete</button>
+            </div>
+          </li>
+        `).join('');
+      } catch (error) {
+        fileList.innerHTML = '<li class="empty-state">Failed to load files</li>';
+      }
+    }
+    
+    async function deleteFile(filename) {
+      if (!confirm('Are you sure you want to delete this file?')) return;
+      
+      try {
+        const response = await fetch(`/api/files/${filename}`, {
+          method: 'DELETE'
+        });
+        
+        if (response.ok) {
+          showToast('File deleted', 'success');
+          loadFiles();
+        } else {
+          throw new Error('Delete failed');
+        }
+      } catch (error) {
+        showToast('Failed to delete file', 'error');
+      }
+    }
+    
+    // Load files on page load
+    loadFiles();
+    
+    // Refresh every 5 seconds
+    setInterval(loadFiles, 5000);
+  </script>
+</body>
+</html>

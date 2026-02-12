@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NyaShare - Local File Sharing</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    h1 {
+      color: #333;
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 2.5em;
+    }
+    
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+    }
+    
+    .button {
+      display: block;
+      width: 100%;
+      padding: 15px 30px;
+      margin: 10px 0;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.1em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      text-decoration: none;
+      text-align: center;
+    }
+    
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+    }
+    
+    .button-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    
+    .button-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    
+    .info {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 10px;
+      text-align: center;
+    }
+    
+    .info p {
+      margin: 5px 0;
+      color: #666;
+    }
+    
+    .url {
+      font-family: monospace;
+      background: #e9ecef;
+      padding: 5px 10px;
+      border-radius: 5px;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 NyaShare</h1>
+    <p class="subtitle">Share files over your local network</p>
+    
+    <a href="/share" class="button button-primary">📤 Share Files</a>
+    <a href="https://github.com" target="_blank" class="button button-secondary">📖 Documentation</a>
+    
+    <div class="info">
+      <p><strong>Quick Start:</strong></p>
+      <p>1. Run <code>nyashare</code> on this device</p>
+      <p>2. Run <code>nyashare</code> on other devices</p>
+      <p>3. Select files and send them!</p>
+      <br>
+      <p>Access from other devices:</p>
+      <p class="url" id="currentUrl"></p>
+    </div>
+  </div>
+  
+  <script>
+    document.getElementById('currentUrl').textContent = window.location.origin + '/share';
+  </script>
+</body>
+</html>
