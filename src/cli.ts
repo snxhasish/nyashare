@@ -6,10 +6,11 @@ import path from 'path';
 import fs from 'fs-extra';
 import os from 'os';
 import ora from 'ora';
+import axios from 'axios';
 import { ShareServer } from './server';
 import { DeviceDiscovery } from './discovery';
 import { FileTransferService } from './transfer';
-import { Device, ServerConfig } from './types';
+import { Device, ServerConfig, IncomingTransferRequest } from './types';
 
 const program = new Command();
 
@@ -29,6 +30,14 @@ function expandPath(inputPath: string): string {
     return os.homedir();
   }
   return inputPath;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 async function getAllFiles(dirPath: string): Promise<string[]> {
@@ -53,11 +62,12 @@ async function getAllFiles(dirPath: string): Promise<string[]> {
   return files;
 }
 
-async function startServer(): Promise<{ server: ShareServer; discovery: DeviceDiscovery }> {
+async function startServer(autoAccept = false): Promise<{ server: ShareServer; discovery: DeviceDiscovery; config: ServerConfig }> {
   const config: ServerConfig = {
     port: 3000,
     deviceName: getDeviceName(),
-    downloadDir: getDownloadDir()
+    downloadDir: getDownloadDir(),
+    autoAccept
   };
 
   const net = await import('net');
@@ -82,7 +92,34 @@ async function startServer(): Promise<{ server: ShareServer; discovery: DeviceDi
   const discovery = new DeviceDiscovery(config.deviceName, config.port);
   await discovery.start();
 
-  return { server, discovery };
+  return { server, discovery, config };
+}
+
+async function checkIncomingRequests(port: number): Promise<IncomingTransferRequest[]> {
+  try {
+    const response = await axios.get(`http://localhost:${port}/api/transfer/requests`, { timeout: 5000 });
+    return response.data;
+  } catch {
+    return [];
+  }
+}
+
+async function acceptRequest(port: number, requestId: string): Promise<boolean> {
+  try {
+    const response = await axios.post(`http://localhost:${port}/api/transfer/${requestId}/accept`, {}, { timeout: 5000 });
+    return response.data.success;
+  } catch {
+    return false;
+  }
+}
+
+async function declineRequest(port: number, requestId: string): Promise<boolean> {
+  try {
+    const response = await axios.post(`http://localhost:${port}/api/transfer/${requestId}/decline`, {}, { timeout: 5000 });
+    return response.data.success;
+  } catch {
+    return false;
+  }
 }
 
 program
@@ -93,7 +130,8 @@ program
 program
   .command('start')
   .description('start the nyashare server and CLI')
-  .action(async () => {
+  .option('-a, --auto-accept', 'automatically accept all incoming transfers', false)
+  .action(async (options) => {
 
     const ear = chalk.blue.dim;
     const body = chalk.blue;
@@ -110,18 +148,91 @@ ${body("………………………………………………………………
       chalk.yellow('initializing server...')
     ).start();
 
-    const { server, discovery } = await startServer();
+    const { server, discovery, config } = await startServer(options.autoAccept);
 
     spinner.succeed(
       chalk.green('server started')
     );
 
     const localIp = discovery.getLocalAddress();
-    const port = 3000;
+    const port = config.port;
 
     console.log(chalk.green('running'), chalk.blue('nyashare'), chalk.green(`on ${chalk.blue.underline(getDeviceName())}`));
 
+    if (options.autoAccept) {
+      console.log(chalk.yellow('⚡ auto-accept mode enabled - all transfers will be accepted automatically\n'));
+    }
+
     console.log(chalk.gray(`share files through CLI or go to ${chalk.underline(`http://${localIp}:${port}/share\n`)}`));
+
+    // Track processed requests to avoid duplicates
+    const processedRequests = new Set<string>();
+    let isPrompting = false;
+
+    // Check for incoming requests periodically
+    const requestInterval = setInterval(async () => {
+      if (isPrompting) return;
+
+      const requests = await checkIncomingRequests(port);
+      const pendingRequests = requests.filter(r => !processedRequests.has(r.requestId));
+
+      if (pendingRequests.length > 0) {
+        isPrompting = true;
+        
+        for (const request of pendingRequests) {
+          console.log(chalk.cyan(`\n\n📨 incoming transfer request from ${chalk.bold(request.fromDevice)}`));
+          console.log(chalk.gray(`   files: ${request.files.length} file(s)`));
+          console.log(chalk.gray(`   total size: ${formatFileSize(request.totalSize)}`));
+          
+          if (request.files.length <= 5) {
+            request.files.forEach(f => {
+              console.log(chalk.gray(`   - ${f.filename} (${formatFileSize(f.size)})`));
+            });
+          } else {
+            request.files.slice(0, 3).forEach(f => {
+              console.log(chalk.gray(`   - ${f.filename} (${formatFileSize(f.size)})`));
+            });
+            console.log(chalk.gray(`   ... and ${request.files.length - 3} more file(s)`));
+          }
+          console.log();
+
+          const { action } = await inquirer.prompt([{
+            type: 'list',
+            name: 'action',
+            message: `accept transfer from ${request.fromDevice}?`,
+            choices: [
+              { name: '✅ accept', value: 'accept' },
+              { name: '❌ decline', value: 'decline' },
+              { name: '⏱️  wait (decide later)', value: 'wait' }
+            ]
+          }]);
+
+          if (action === 'accept') {
+            const acceptSpinner = ora('accepting transfer...').start();
+            const success = await acceptRequest(port, request.requestId);
+            if (success) {
+              acceptSpinner.succeed('transfer accepted - files will be downloaded automatically');
+            } else {
+              acceptSpinner.fail('failed to accept transfer');
+            }
+            processedRequests.add(request.requestId);
+          } else if (action === 'decline') {
+            const declineSpinner = ora('declining transfer...').start();
+            const success = await declineRequest(port, request.requestId);
+            if (success) {
+              declineSpinner.succeed('transfer declined');
+            } else {
+              declineSpinner.fail('failed to decline transfer');
+            }
+            processedRequests.add(request.requestId);
+          }
+          // If 'wait' is selected, don't add to processedRequests so it will be prompted again
+        }
+
+        isPrompting = false;
+        console.log();
+      }
+    }, 3000);
 
     const showPrompt = async () => {
       const { action } = await inquirer.prompt([{
@@ -137,6 +248,7 @@ ${body("………………………………………………………………
       }]);
 
       if (action === 'exit') {
+        clearInterval(requestInterval);
         console.log(chalk.yellow('\nclosing'), chalk.blue('nyashare'));
         discovery.stop();
         server.stop();
@@ -270,18 +382,35 @@ ${body("………………………………………………………………
 
         const transferService = new FileTransferService();
         let completed = 0;
+        let isWaiting = false;
 
         try {
           await transferService.sendFiles(files, targetDevice, (transfer) => {
-            if (transfer.status === 'completed') {
+            if (transfer.status === 'pending' && !isWaiting) {
+              console.log(chalk.yellow(`⏳ waiting for ${targetDevice.name} to accept the transfer...`));
+              isWaiting = true;
+            } else if (transfer.status === 'transferring') {
+              if (isWaiting) {
+                console.log(chalk.green(`✅ transfer accepted! uploading files...\n`));
+                isWaiting = false;
+              }
+            } else if (transfer.status === 'completed') {
               completed++;
               process.stdout.write(`\r${chalk.green('⏵')} Progress: ${completed}/${files.length} files completed`);
             }
-          });
+          }, getDeviceName());
 
           console.log(chalk.green(`\n\n✅ successfully sent ${files.length} file(s) to ${targetDevice.name}!\n`));
-        } catch (error) {
-          console.error(chalk.red(`\n\n❌ failed to send files: ${error}\n`));
+        } catch (error: any) {
+          if (error.message?.includes('declined')) {
+            console.error(chalk.red(`\n\n❌ transfer was declined by ${targetDevice.name}\n`));
+          } else if (error.message?.includes('expired')) {
+            console.error(chalk.red(`\n\n❌ transfer request expired\n`));
+          } else if (error.message?.includes('timed out')) {
+            console.error(chalk.red(`\n\n❌ transfer timed out waiting for approval\n`));
+          } else {
+            console.error(chalk.red(`\n\n❌ failed to send files: ${error}\n`));
+          }
         }
 
         showPrompt();
@@ -291,75 +420,124 @@ ${body("………………………………………………………………
     showPrompt();
   });
 
-/**
 program
-  .command('send <path>')
-  .description('send a file or folder to a device')
-  .action(async (filePath: string) => {
-    const expandedPath = expandPath(filePath);
-    const resolvedPath = path.resolve(expandedPath);
+  .command('receive')
+  .description('start in receiver mode - only accept/decline incoming transfers')
+  .option('-a, --auto-accept', 'automatically accept all incoming transfers', false)
+  .action(async (options) => {
+    const ear = chalk.blue.dim;
+    const body = chalk.blue;
 
-    try {
-      await fs.access(resolvedPath);
-    } catch {
-      console.error(chalk.red(`❌ path does not exist: ${filePath}`));
-      process.exit(1);
+    console.log(`${ear("◤")}        ${ear("◥")}
+${body("████████████")}   ${body("nyashare - receiver mode")}
+${body("███   ██  ██")}   ${ear("v0.0.1")}
+${body("████████████")}
+${body("███        █")}
+${body("……………………………………………………………………………")}
+`);
+
+    const spinner = ora(
+      chalk.yellow('initializing receiver...')
+    ).start();
+
+    const { server, discovery, config } = await startServer(options.autoAccept);
+
+    spinner.succeed(
+      chalk.green('receiver ready')
+    );
+
+    const localIp = discovery.getLocalAddress();
+    const port = config.port;
+
+    console.log(chalk.green('receiver mode'), chalk.blue('nyashare'), chalk.green(`on ${chalk.blue.underline(getDeviceName())}`));
+    
+    if (options.autoAccept) {
+      console.log(chalk.yellow('⚡ auto-accept mode enabled\n'));
+    } else {
+      console.log(chalk.cyan('waiting for incoming transfer requests...\n'));
     }
 
-    const spinner = ora('starting server...').start();
-    const { server, discovery } = await startServer();
-    spinner.succeed('server started');
+    console.log(chalk.gray(`web interface: ${chalk.underline(`http://${localIp}:${port}/share\n`)}`));
 
-    const files = await getAllFiles(resolvedPath);
-    console.log(chalk.cyan(`📁 found ${files.length} file(s) to send`));
+    // In receiver mode, we just wait for requests
+    const processedRequests = new Set<string>();
 
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    const checkRequests = async () => {
+      const requests = await checkIncomingRequests(port);
+      const pendingRequests = requests.filter(r => !processedRequests.has(r.requestId));
 
-    const devices = discovery.getDevices();
+      for (const request of pendingRequests) {
+        if (options.autoAccept) {
+          console.log(chalk.green(`\n✅ auto-accepted transfer from ${chalk.bold(request.fromDevice)}`));
+          console.log(chalk.gray(`   files: ${request.files.length} file(s), total: ${formatFileSize(request.totalSize)}`));
+          await acceptRequest(port, request.requestId);
+          processedRequests.add(request.requestId);
+        } else {
+          console.log(chalk.cyan(`\n📨 incoming transfer from ${chalk.bold(request.fromDevice)}`));
+          console.log(chalk.gray(`   files: ${request.files.length} file(s)`));
+          console.log(chalk.gray(`   total size: ${formatFileSize(request.totalSize)}`));
+          
+          if (request.files.length <= 5) {
+            request.files.forEach(f => {
+              console.log(chalk.gray(`   - ${f.filename} (${formatFileSize(f.size)})`));
+            });
+          } else {
+            request.files.slice(0, 3).forEach(f => {
+              console.log(chalk.gray(`   - ${f.filename} (${formatFileSize(f.size)})`));
+            });
+            console.log(chalk.gray(`   ... and ${request.files.length - 3} more file(s)`));
+          }
+          console.log();
 
-    if (devices.length === 0) {
-      console.log(chalk.yellow('\n⚠️  no devices found. waiting 10 seconds...'));
-      await new Promise(resolve => setTimeout(resolve, 10000));
+          const { action } = await inquirer.prompt([{
+            type: 'list',
+            name: 'action',
+            message: `accept transfer from ${request.fromDevice}?`,
+            choices: [
+              { name: '✅ accept', value: 'accept' },
+              { name: '❌ decline', value: 'decline' }
+            ]
+          }]);
 
-      const updatedDevices = discovery.getDevices();
-      if (updatedDevices.length === 0) {
-        console.error(chalk.red('\n❌ no devices found. make sure other devices are running nyashare.'));
-        discovery.stop();
-        server.stop();
-        process.exit(1);
+          if (action === 'accept') {
+            const acceptSpinner = ora('accepting transfer...').start();
+            const success = await acceptRequest(port, request.requestId);
+            if (success) {
+              acceptSpinner.succeed('transfer accepted');
+            } else {
+              acceptSpinner.fail('failed to accept transfer');
+            }
+            processedRequests.add(request.requestId);
+          } else {
+            const declineSpinner = ora('declining transfer...').start();
+            const success = await declineRequest(port, request.requestId);
+            if (success) {
+              declineSpinner.succeed('transfer declined');
+            } else {
+              declineSpinner.fail('failed to decline transfer');
+            }
+            processedRequests.add(request.requestId);
+          }
+          console.log();
+        }
       }
-    }
+    };
 
-    const currentDevices = discovery.getDevices();
-    const choices = currentDevices.map(device => ({
-      name: `${device.name} (${device.ip})`,
-      value: device
-    }));
+    // Check for requests every 2 seconds
+    const interval = setInterval(checkRequests, 2000);
 
-    const { targetDevice } = await inquirer.prompt([{
-      type: 'list',
-      name: 'targetDevice',
-      message: 'choose a device to send to:',
-      choices
-    }]);
-
-    console.log(chalk.cyan(`\n📤 sending to ${targetDevice.name}...`));
-
-    const transferService = new FileTransferService();
-    const transfers = await transferService.sendFiles(files, targetDevice, (transfer) => {
-      if (transfer.progress % 10 === 0) {
-        process.stdout.write(`\r${transfer.filename}: ${transfer.progress}%`);
-      }
+    // Handle graceful shutdown
+    process.on('SIGINT', () => {
+      clearInterval(interval);
+      console.log(chalk.yellow('\nclosing'), chalk.blue('nyashare'));
+      discovery.stop();
+      server.stop();
+      process.exit(0);
     });
 
-    console.log(chalk.green(`\n✅ sent ${transfers.length} file(s) successfully!`));
-
-    discovery.stop();
-    server.stop();
-    process.exit(0);
+    // Keep the process running
+    await new Promise(() => {});
   });
-
-*/
 
 if (process.argv.length === 2) {
   program.parse(['node', 'cli', 'start']);

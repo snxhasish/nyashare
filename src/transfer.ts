@@ -2,7 +2,7 @@ import axios from 'axios';
 import FormData from 'form-data';
 import fs from 'fs-extra';
 import path from 'path';
-import { Device, FileTransfer } from './types';
+import { Device, FileTransfer, TransferRequestData } from './types';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 
@@ -12,18 +12,109 @@ export class FileTransferService {
   async sendFiles(
     files: string[], 
     device: Device, 
-    onProgress?: (transfer: FileTransfer) => void
+    onProgress?: (transfer: FileTransfer) => void,
+    deviceName?: string
   ): Promise<FileTransfer[]> {
     const transfers: FileTransfer[] = [];
     
+    // First, collect all file info
+    const fileInfos = [];
+    let totalSize = 0;
+    
     for (const filePath of files) {
       const stat = await fs.stat(filePath);
+      fileInfos.push({
+        path: filePath,
+        filename: path.basename(filePath),
+        size: stat.size
+      });
+      totalSize += stat.size;
+    }
+
+    // Create transfer request data
+    const requestData: TransferRequestData = {
+      requestId: '', // Will be filled by server
+      fromDevice: deviceName || 'Unknown Device',
+      fromIp: '',
+      files: fileInfos.map(f => ({ filename: f.filename, size: f.size })),
+      totalSize
+    };
+
+    // Step 1: Request permission to transfer
+    let requestId: string;
+    let autoAccept = false;
+    
+    try {
+      const requestResponse = await axios.post(
+        `http://${device.ip}:${device.port}/api/transfer/request`,
+        requestData,
+        { timeout: 10000 }
+      );
+      
+      requestId = requestResponse.data.requestId;
+      autoAccept = requestResponse.data.autoAccept;
+      
+      if (!autoAccept) {
+        onProgress?.({
+          id: requestId,
+          filename: `Waiting for approval from ${device.name}...`,
+          size: totalSize,
+          progress: 0,
+          status: 'pending',
+          toDevice: device.name
+        } as FileTransfer);
+      }
+    } catch (error) {
+      throw new Error(`Failed to request transfer: ${error}`);
+    }
+
+    // Step 2: Poll for approval status
+    if (!autoAccept) {
+      let approved = false;
+      let attempts = 0;
+      const maxAttempts = 60; // 5 minutes (5 second intervals)
+      
+      while (!approved && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        try {
+          const statusResponse = await axios.get(
+            `http://${device.ip}:${device.port}/api/transfer/${requestId}/status`,
+            { timeout: 5000 }
+          );
+          
+          const status = statusResponse.data.status;
+          
+          if (status === 'accepted') {
+            approved = true;
+          } else if (status === 'declined') {
+            throw new Error('Transfer was declined by the receiver');
+          } else if (status === 'expired') {
+            throw new Error('Transfer request expired');
+          }
+        } catch (error: any) {
+          if (error.message?.includes('declined') || error.message?.includes('expired')) {
+            throw error;
+          }
+          // Continue polling on network errors
+        }
+        
+        attempts++;
+      }
+      
+      if (!approved) {
+        throw new Error('Transfer request timed out waiting for approval');
+      }
+    }
+
+    // Step 3: Upload files with the approved request ID
+    for (const fileInfo of fileInfos) {
       const transfer: FileTransfer = {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        filename: path.basename(filePath),
-        size: stat.size,
+        filename: fileInfo.filename,
+        size: fileInfo.size,
         progress: 0,
-        status: 'pending',
+        status: 'transferring',
         toDevice: device.name
       };
       
@@ -31,19 +122,20 @@ export class FileTransferService {
       transfers.push(transfer);
 
       try {
-        transfer.status = 'transferring';
-        
         const form = new FormData();
-        form.append('files', fs.createReadStream(filePath), {
-          filename: path.basename(filePath),
-          knownLength: stat.size
+        form.append('files', fs.createReadStream(fileInfo.path), {
+          filename: fileInfo.filename,
+          knownLength: fileInfo.size
         });
 
         await axios.post(
           `http://${device.ip}:${device.port}/api/upload`,
           form,
           {
-            headers: form.getHeaders(),
+            headers: {
+              ...form.getHeaders(),
+              'X-Transfer-Request-ID': requestId
+            },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
             onUploadProgress: (progressEvent) => {

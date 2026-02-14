@@ -2,6 +2,8 @@
 
 A CLI tool to share files over your local network. No internet required - just connect to the same WiFi router!
 
+### [Discord Support Server](https://discord.gg/K6k6ebkJkx)
+
 ## Features
 
 ✨ **Zero Configuration** - Automatically discovers devices on your network  
@@ -10,15 +12,13 @@ A CLI tool to share files over your local network. No internet required - just c
 🔒 **Local Only** - Files never leave your local network  
 📱 **Cross-Platform** - Works on macOS, Linux, and Windows
 
-## Installation
+## Usage
 
 ```bash
-npm install
-npm run build
-npm link  # Makes 'nyashare' command available globally
+npx nyashare
 ```
 
-Or run locally:
+Or run locally after cloning [snxhasish/nyashare](https://github.com/snxhasish/nyashare):
 ```bash
 npm install
 npm run build
@@ -31,7 +31,7 @@ node dist/cli.js
 
 Simply run:
 ```bash
-nyashare
+npx nyashare
 ```
 
 This starts the server and opens an interactive CLI where you can:
@@ -43,10 +43,10 @@ This starts the server and opens an interactive CLI where you can:
 
 ```bash
 # Send a file
-nyashare send /path/to/file.pdf
+npx nyashare send /path/to/file.pdf
 
 # Send a folder
-nyashare send /path/to/folder
+npx nyashare send /path/to/folder
 ```
 
 ### Web Interface
@@ -71,7 +71,7 @@ The CLI will display the exact URL when it starts.
 |---------|-------------|
 | `nyashare` | Start interactive mode |
 | `nyashare start` | Start the server and CLI (same as above) |
-| `nyashare send <path>` | Send a file or folder to another device |
+| `nyashare receive` | Receive mode: start in receiver mode, accept or decline incoming req |
 | `nyashare --help` | Show help information |
 | `nyashare --version` | Show version number |
 

@@ -161,6 +161,15 @@
       background: #c82333;
     }
     
+    .btn-success {
+      background: #28a745;
+      color: white;
+    }
+    
+    .btn-success:hover {
+      background: #218838;
+    }
+    
     .empty-state {
       text-align: center;
       padding: 40px;
@@ -216,6 +225,10 @@
       background: #dc3545;
     }
     
+    .toast.info {
+      background: #17a2b8;
+    }
+    
     @keyframes slideIn {
       from {
         transform: translateX(100%);
@@ -241,6 +254,92 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
+    /* Request styles */
+    .request-item {
+      background: #f8f9fa;
+      border: 2px solid #e9ecef;
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 15px;
+      transition: all 0.3s;
+    }
+
+    .request-item:hover {
+      border-color: #667eea;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    }
+
+    .request-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .request-device {
+      font-weight: 600;
+      color: #333;
+      font-size: 1.1em;
+    }
+
+    .request-status {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.8em;
+      font-weight: 500;
+    }
+
+    .request-status.pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .request-status.accepted {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .request-status.declined {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .request-files {
+      margin: 10px 0;
+      padding-left: 20px;
+    }
+
+    .request-files li {
+      color: #666;
+      font-size: 0.9em;
+      margin: 5px 0;
+    }
+
+    .request-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+
+    .request-info {
+      color: #666;
+      font-size: 0.9em;
+      margin-top: 5px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .badge {
+      background: #667eea;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75em;
+      margin-left: 8px;
+    }
   </style>
 </head>
 <body>
@@ -255,6 +354,13 @@
       <h3>Drop files here or click to upload</h3>
       <p>Maximum file size: 10GB</p>
       <input type="file" id="fileInput" multiple>
+    </div>
+    
+    <div class="section" id="requestsSection">
+      <h2>📨 Incoming Transfer Requests <span class="badge hidden" id="requestCount">0</span></h2>
+      <div id="requestsList">
+        <div class="empty-state">No incoming transfer requests</div>
+      </div>
     </div>
     
     <div class="section">
@@ -275,6 +381,136 @@
     const fileList = document.getElementById('fileList');
     const toast = document.getElementById('toast');
     const toastMessage = document.getElementById('toastMessage');
+    const requestsList = document.getElementById('requestsList');
+    const requestCount = document.getElementById('requestCount');
+    
+    // WebSocket connection
+    let ws = null;
+    let pendingRequests = new Map();
+    
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        ws.send(JSON.stringify({ type: 'getRequests' }));
+      };
+      
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'requests') {
+          data.data.forEach(request => {
+            pendingRequests.set(request.requestId, request);
+          });
+          updateRequestsList();
+        } else if (data.type === 'requestUpdate') {
+          const request = data.data;
+          if (request.status === 'pending') {
+            pendingRequests.set(request.requestId, request);
+            showToast(`Incoming transfer from ${request.fromDevice}`, 'info');
+          } else if (request.status === 'accepted') {
+            // Request was accepted, remove from pending if it was there
+            if (pendingRequests.has(request.requestId)) {
+              showToast(`Transfer from ${request.fromDevice} accepted`, 'success');
+              pendingRequests.delete(request.requestId);
+            }
+          } else if (request.status === 'declined') {
+            if (pendingRequests.has(request.requestId)) {
+              showToast(`Transfer from ${request.fromDevice} declined`, 'error');
+              pendingRequests.delete(request.requestId);
+            }
+          }
+          updateRequestsList();
+        } else if (data.type === 'transfers') {
+          // Transfer completed
+          loadFiles();
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected, reconnecting...');
+        setTimeout(connectWebSocket, 3000);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    }
+    
+    function updateRequestsList() {
+      const requests = Array.from(pendingRequests.values());
+      
+      if (requests.length === 0) {
+        requestsList.innerHTML = '<div class="empty-state">No incoming transfer requests</div>';
+        requestCount.classList.add('hidden');
+      } else {
+        requestCount.textContent = requests.length;
+        requestCount.classList.remove('hidden');
+        
+        requestsList.innerHTML = requests.map(request => `
+          <div class="request-item" data-request-id="${request.requestId}">
+            <div class="request-header">
+              <span class="request-device">${request.fromDevice}</span>
+              <span class="request-status ${request.status}">${request.status}</span>
+            </div>
+            <div class="request-info">
+              <strong>${request.files.length} file(s)</strong> • Total: ${formatSize(request.totalSize)}
+            </div>
+            <ul class="request-files">
+              ${request.files.map(f => `<li>${f.filename} (${formatSize(f.size)})</li>`).join('')}
+            </ul>
+            <div class="request-actions">
+              <button class="btn btn-success" onclick="acceptRequest('${request.requestId}')">✅ Accept</button>
+              <button class="btn btn-danger" onclick="declineRequest('${request.requestId}')">❌ Decline</button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+    
+    async function acceptRequest(requestId) {
+      try {
+        const response = await fetch(`/api/transfer/${requestId}/accept`, {
+          method: 'POST'
+        });
+        
+        if (response.ok) {
+          const request = pendingRequests.get(requestId);
+          if (request) {
+            showToast(`Transfer from ${request.fromDevice} accepted`, 'success');
+          }
+          pendingRequests.delete(requestId);
+          updateRequestsList();
+        } else {
+          throw new Error('Failed to accept');
+        }
+      } catch (error) {
+        showToast('Failed to accept transfer', 'error');
+      }
+    }
+    
+    async function declineRequest(requestId) {
+      try {
+        const response = await fetch(`/api/transfer/${requestId}/decline`, {
+          method: 'POST'
+        });
+        
+        if (response.ok) {
+          const request = pendingRequests.get(requestId);
+          if (request) {
+            showToast(`Transfer from ${request.fromDevice} declined`, 'success');
+          }
+          pendingRequests.delete(requestId);
+          updateRequestsList();
+        } else {
+          throw new Error('Failed to decline');
+        }
+      } catch (error) {
+        showToast('Failed to decline transfer', 'error');
+      }
+    }
     
     // Click to upload
     uploadArea.addEventListener('click', () => fileInput.click());
@@ -335,10 +571,11 @@
           showToast('Files uploaded successfully!', 'success');
           loadFiles();
         } else {
-          throw new Error('Upload failed');
+          const error = await response.json();
+          throw new Error(error.error || 'Upload failed');
         }
       } catch (error) {
-        showToast('Failed to upload files', 'error');
+        showToast(error.message || 'Failed to upload files', 'error');
       }
       
       fileInput.value = '';
@@ -390,10 +627,11 @@
       }
     }
     
-    // Load files on page load
+    // Initialize
+    connectWebSocket();
     loadFiles();
     
-    // Refresh every 5 seconds
+    // Refresh files every 5 seconds as fallback
     setInterval(loadFiles, 5000);
   </script>
 </body>

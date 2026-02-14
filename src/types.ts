@@ -18,13 +18,39 @@ export interface FileTransfer {
   remotePath?: string;
 }
 
-export interface TransferRequest {
+export interface TransferRequestPayload {
   files: string[];
   targetDevice: Device;
+}
+
+export interface IncomingTransferRequest {
+  id: string;
+  requestId: string;
+  fromDevice: string;
+  fromIp: string;
+  files: Array<{
+    filename: string;
+    size: number;
+  }>;
+  totalSize: number;
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  createdAt: Date;
+}
+
+export interface TransferRequestData {
+  requestId: string;
+  fromDevice: string;
+  fromIp: string;
+  files: Array<{
+    filename: string;
+    size: number;
+  }>;
+  totalSize: number;
 }
 
 export interface ServerConfig {
   port: number;
   deviceName: string;
   downloadDir: string;
+  autoAccept?: boolean;
 }
