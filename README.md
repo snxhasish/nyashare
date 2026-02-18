@@ -1,4 +1,6 @@
-# NyaShare
+<div align="center">
+    <img src="public/banner.png" alt="banner">
+</div>
 
 A CLI tool to share files over your local network. No internet required - just connect to the same WiFi router!
 
@@ -19,6 +21,7 @@ npx nyashare
 ```
 
 Or run locally after cloning [snxhasish/nyashare](https://github.com/snxhasish/nyashare):
+
 ```bash
 npm install
 npm run build
@@ -30,11 +33,13 @@ node dist/cli.js
 ### Interactive Mode (Recommended)
 
 Simply run:
+
 ```bash
 npx nyashare
 ```
 
 This starts the server and opens an interactive CLI where you can:
+
 - Send files to discovered devices
 - List available devices on the network
 - Open the web UI in your browser
@@ -52,6 +57,7 @@ npx nyashare send /path/to/folder
 ### Web Interface
 
 Access the web UI from any device on your network:
+
 ```
 http://<YOUR_IP>:3000/share
 ```
@@ -67,13 +73,13 @@ The CLI will display the exact URL when it starts.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `nyashare` | Start interactive mode |
-| `nyashare start` | Start the server and CLI (same as above) |
-| `nyashare receive` | Receive mode: start in receiver mode, accept or decline incoming req |
-| `nyashare --help` | Show help information |
-| `nyashare --version` | Show version number |
+| Command              | Description                                                          |
+| -------------------- | -------------------------------------------------------------------- |
+| `nyashare`           | Start interactive mode                                               |
+| `nyashare start`     | Start the server and CLI (same as above)                             |
+| `nyashare receive`   | Receive mode: start in receiver mode, accept or decline incoming req |
+| `nyashare --help`    | Show help information                                                |
+| `nyashare --version` | Show version number                                                  |
 
 ## Network Requirements
 
@@ -117,16 +123,19 @@ npm run lint
 ## Troubleshooting
 
 **No devices found?**
+
 - Make sure all devices are on the same WiFi network
 - Check that firewall isn't blocking UDP port 41234
 - Try restarting the CLI on all devices
 
 **Can't access web UI?**
+
 - Verify the IP address shown in the CLI
 - Check if port 3000 is available or if another service is using it
 - The CLI automatically finds an available port if 3000 is taken
 
 **File transfers failing?**
+
 - Ensure both devices are still running nyashare
 - Check disk space on the receiving device
 - For large files, ensure stable network connection

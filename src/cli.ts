@@ -135,8 +135,8 @@ program
   .option('-a, --auto-accept', 'automatically accept all incoming transfers', false)
   .action(async (options) => {
 
-    const ear = chalk.blue.dim;
-    const body = chalk.blue;
+    const ear = chalk.hex('#B7B1F2').dim;
+    const body = chalk.hex('#B7B1F2');
 
     console.log(`${ear("◤")}        ${ear("◥")}
 ${body("████████████")}   ${body("nyashare")}
@@ -433,8 +433,8 @@ program
   .description('start in receiver mode - only accept/decline incoming transfers')
   .option('-a, --auto-accept', 'automatically accept all incoming transfers', false)
   .action(async (options) => {
-    const ear = chalk.blue.dim;
-    const body = chalk.blue;
+    const ear = chalk.hex('#B7B1F2').dim;
+    const body = chalk.hex('#B7B1F2');
 
     console.log(`${ear("◤")}        ${ear("◥")}
 ${body("████████████")}   ${body("nyashare - receiver mode")}
