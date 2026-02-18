@@ -1,6 +1,6 @@
 {
   "name": "nyashare",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "CLI tool to share files over local network",
   "main": "dist/index.js",
   "bin": {

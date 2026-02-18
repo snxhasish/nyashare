@@ -12,6 +12,7 @@ import { ShareServer } from './server';
 import { DeviceDiscovery } from './discovery';
 import { FileTransferService } from './transfer';
 import { Device, ServerConfig, IncomingTransferRequest } from './types';
+import { version } from '../package.json';
 
 const program = new Command();
 inquirer.registerPrompt('file-tree-selection', inquirerFileTreeSelection)
@@ -127,7 +128,7 @@ async function declineRequest(port: number, requestId: string): Promise<boolean>
 program
   .name('nyashare')
   .description('CLI tool to quick share files over local network')
-  .version('0.0.1');
+  .version(version);
 
 program
   .command('start')
@@ -140,7 +141,7 @@ program
 
     console.log(`${ear("◤")}        ${ear("◥")}
 ${body("████████████")}   ${body("nyashare")}
-${body("███   ██  ██")}   ${ear("v0.0.1")}
+${body(`███   ██  ██`)}   ${ear(`v${version}`)}
 ${body("████████████")}
 ${body("███        █")}
 ${body("……………………………………………………………………………")}
@@ -438,7 +439,7 @@ program
 
     console.log(`${ear("◤")}        ${ear("◥")}
 ${body("████████████")}   ${body("nyashare - receiver mode")}
-${body("███   ██  ██")}   ${ear("v0.0.1")}
+${body(`███   ██  ██`)}   ${ear(`v${version}`)}
 ${body("████████████")}
 ${body("███        █")}
 ${body("……………………………………………………………………………")}
