@@ -7,12 +7,14 @@ import fs from 'fs-extra';
 import os from 'os';
 import ora from 'ora';
 import axios from 'axios';
+import inquirerFileTreeSelection from "inquirer-file-tree-selection-prompt"
 import { ShareServer } from './server';
 import { DeviceDiscovery } from './discovery';
 import { FileTransferService } from './transfer';
 import { Device, ServerConfig, IncomingTransferRequest } from './types';
 
 const program = new Command();
+inquirer.registerPrompt('file-tree-selection', inquirerFileTreeSelection)
 
 function getDeviceName(): string {
   return os.hostname();
@@ -272,10 +274,16 @@ ${body("………………………………………………………………
         showPrompt();
       } else if (action === 'send') {
         const { filePath } = await inquirer.prompt([{
-          type: 'input',
+          type: 'file-tree-selection',
           name: 'filePath',
           message: 'enter file or folder path to send:',
+          enableGoUpperDirectory: true,
           validate: async (input: string) => {
+            if (input.length > 0) {
+              return true
+            } else {
+              return "path cannot be empty"
+            }
             const expanded = expandPath(input);
             const resolved = path.resolve(expanded);
             try {
